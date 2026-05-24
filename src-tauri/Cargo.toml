@@ -34,3 +34,6 @@ unrar = "0.5.8"              # FFI bindings for RAR5 support
 encoding_rs = "0.8.35"       # The encoding fix (GBK/Shift-JIS -> UTF-8)
 chardetng = "1.0.0"          # Encoding detection heuristic
 rayon = "1.12.0"             # Thread-pool for parallel compression
+
+# Error handling
+thiserror = "2.0.18"
