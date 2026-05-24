@@ -12,10 +12,10 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1(vue@3.5.34(typescript@6.0.3))
       '@tauri-apps/api':
-        specifier: ^2
+        specifier: ^2.11.0
         version: 2.11.0
       '@tauri-apps/plugin-opener':
-        specifier: ^2
+        specifier: ^2.5.4
         version: 2.5.4
       pinia:
         specifier: ^3.0.4
@@ -24,7 +24,7 @@ importers:
         specifier: ^1.9.17
         version: 1.9.17(vue@3.5.34(typescript@6.0.3))
       vue:
-        specifier: ^3.5.13
+        specifier: ^3.5.34
         version: 3.5.34(typescript@6.0.3)
     devDependencies:
       '@commitlint/cli':
@@ -40,7 +40,7 @@ importers:
         specifier: ^4.3.0
         version: 4.3.0(vite@8.0.14(@types/node@25.9.1)(jiti@2.7.0))
       '@tauri-apps/cli':
-        specifier: ^2
+        specifier: ^2.11.2
         version: 2.11.2
       '@vitejs/plugin-vue':
         specifier: ^6.0.7
@@ -1844,8 +1844,8 @@ packages:
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
 
-  tinyexec@1.1.2:
-    resolution: {integrity: sha512-dAqSqE/RabpBKI8+h26GfLq6Vb3JVXs30XYQjdMjaj/c2tS8IYYMbIzP599KtRj7c57/wYApb3QjgRgXmrCukA==}
+  tinyexec@1.2.2:
+    resolution: {integrity: sha512-M/Q0B2cp4K7kynaT/vnED1j8TlLY+Pp7C6Wl2bl/7u/F0mUVwdyOpwomQb8JpYLitHUssAJRmLZdMCGsrx7i+g==}
     engines: {node: '>=18'}
 
   tinyglobby@0.2.16:
@@ -2060,7 +2060,7 @@ snapshots:
       '@commitlint/load': 21.0.1(@types/node@25.9.1)(typescript@6.0.3)
       '@commitlint/read': 21.0.1(conventional-commits-parser@6.4.0)
       '@commitlint/types': 21.0.1
-      tinyexec: 1.1.2
+      tinyexec: 1.2.2
       yargs: 18.0.0
     transitivePeerDependencies:
       - '@types/node'
@@ -2130,7 +2130,7 @@ snapshots:
       '@commitlint/top-level': 21.0.1
       '@commitlint/types': 21.0.1
       git-raw-commits: 5.0.1(conventional-commits-parser@6.4.0)
-      tinyexec: 1.1.2
+      tinyexec: 1.2.2
     transitivePeerDependencies:
       - conventional-commits-filter
       - conventional-commits-parser
@@ -3727,7 +3727,7 @@ snapshots:
 
   through@2.3.8: {}
 
-  tinyexec@1.1.2: {}
+  tinyexec@1.2.2: {}
 
   tinyglobby@0.2.16:
     dependencies:
