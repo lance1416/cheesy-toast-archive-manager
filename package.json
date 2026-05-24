@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "commit": "cz"
   },
   "dependencies": {
     "@iconify/vue": "^5.0.1",
@@ -19,14 +20,33 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.0.1",
+    "@commitlint/config-conventional": "^21.0.1",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2",
     "@vitejs/plugin-vue": "^5.2.1",
     "autoprefixer": "^10.5.0",
+    "commitizen": "^4.3.1",
+    "cz-conventional-changelog": "^3.3.0",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-vue": "^10.9.1",
+    "globals": "^17.6.0",
+    "lefthook": "^2.1.8",
     "postcss": "^8.5.15",
+    "prettier": "^3.8.3",
     "tailwindcss": "^4.3.0",
     "typescript": "~5.6.2",
+    "typescript-eslint": "^8.59.4",
     "vite": "^6.0.3",
     "vue-tsc": "^2.1.10"
-  }
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  },
+  "packageManager": "pnpm@11.3.0+sha512.2c403d6594527287672b1f7056343a1f7c3634036a67ffabfcc2b3d7595d843768f8787148d1b57cf7956c90606bbd192857c363af19e96d2d0ec9ec5741d215"
 }

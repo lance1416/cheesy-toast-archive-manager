@@ -1,0 +1,42 @@
+# EXAMPLE USAGE:
+#
+#   Refer for explanation to following link:
+#   https://lefthook.dev/configuration/
+#
+# pre-push:
+#   jobs:
+#     - name: packages audit
+#       tags:
+#         - frontend
+#         - security
+#       run: yarn audit
+#
+#     - name: gems audit
+#       tags:
+#         - backend
+#         - security
+#       run: bundle audit
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: frontend-fmt
+      glob: "*.{js,ts,vue,json,md}"
+      run: pnpm prettier --write {staged_files}
+
+    - name: frontend-lint
+      glob: "*.{js,ts,vue}"
+      run: pnpm eslint --fix {all_files}
+
+    - name: backend-fmt
+      glob: "src-tauri/**/*.rs"
+      run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+    - name: backend-clippy
+      glob: "src-tauri/**/*.rs"
+      run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}
