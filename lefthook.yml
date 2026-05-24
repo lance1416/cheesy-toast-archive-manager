@@ -2,20 +2,12 @@
 #
 #   Refer for explanation to following link:
 #   https://lefthook.dev/configuration/
-#
-# pre-push:
-#   jobs:
-#     - name: packages audit
-#       tags:
-#         - frontend
-#         - security
-#       run: yarn audit
-#
-#     - name: gems audit
-#       tags:
-#         - backend
-#         - security
-#       run: bundle audit
+
+pre-push:
+  jobs:
+    - name: backend-test
+      glob: "src-tauri/**/*.rs"
+      run: cargo test --manifest-path src-tauri/Cargo.toml
 
 pre-commit:
   parallel: true
