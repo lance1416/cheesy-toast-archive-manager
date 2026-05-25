@@ -16,7 +16,7 @@ pub struct VfsNode {
 }
 
 /// The entire virtual file system parsed upfront.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtualFileSystem {
     /// The absolute path to the archive file on the host OS
     pub archive_path: String,

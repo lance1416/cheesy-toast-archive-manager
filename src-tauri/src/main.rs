@@ -4,8 +4,10 @@
 mod archive;
 mod encoding;
 
+mod commands;
 mod error;
 mod models;
+mod state;
 
 fn main() {
     cheesy_toast_archive_manager_lib::run()
