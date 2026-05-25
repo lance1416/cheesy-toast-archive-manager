@@ -16,7 +16,6 @@ pub struct ExtractionProgress {
 }
 
 #[tauri::command]
-#[allow(dead_code)]
 pub async fn open_archive(
     path: String,
     fallback_encoding: Option<String>,
@@ -39,7 +38,6 @@ pub async fn open_archive(
 }
 
 #[tauri::command]
-#[allow(dead_code)]
 pub async fn extract_nodes(
     archive_path_str: String,
     nodes: Vec<VfsNode>,

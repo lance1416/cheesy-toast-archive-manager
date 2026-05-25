@@ -1,6 +1,5 @@
 use serde::{Serialize, Serializer};
 
-#[allow(dead_code)] // TODO: Temporary attribute to pacify unused code warnings
 #[derive(Debug, thiserror::Error)]
 pub enum CheesyError {
     #[error("I/O Error: {0}")]

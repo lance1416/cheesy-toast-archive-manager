@@ -8,7 +8,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// The strict contract every archive engine must follow.
-#[allow(dead_code)]
 pub trait ArchiveBackend: Send + Sync {
     /// Parses the entire archive upfront into a flat VFS array.
     fn parse_upfront(
@@ -31,7 +30,6 @@ pub trait ArchiveBackend: Send + Sync {
 }
 
 /// The Factory Router: Inspects the file extension and spins up the right backend.
-#[allow(dead_code)]
 pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyError> {
     let mut file = File::open(path)?;
     let mut buffer = [0u8; 8]; // We only need the first 8 bytes to identify any archive

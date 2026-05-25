@@ -1,7 +1,6 @@
 use encoding_rs::Encoding;
 
 /// Encodes a UTF-8 string into raw bytes targeting a specific legacy encoding.
-#[allow(dead_code)]
 pub fn encode_string(text: &str, target_encoding: Option<&str>) -> Result<Vec<u8>, String> {
     if let Some(label) = target_encoding {
         return if let Some(encoding) = Encoding::for_label(label.as_bytes()) {
