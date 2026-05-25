@@ -28,7 +28,8 @@ serde_json = "1"
 
 # Cheesy Toast Core Engine
 zip = "9.0.0-pre2"           # Pure Rust ZIP parsing (raw bytes access)
-libarchive2 = "0.2.1"        # libarchive bindings (tar, gz, 7z read)
+sevenz-rust2 = "0.21"        # Pure Rust 7z read/write (LZMA, LZMA2, AES-256)
+libarchive2 = "0.2.1"        # libarchive bindings (tar, gz)
 unrar = "0.5.8"              # FFI bindings for RAR5 support
 
 # Encoding & Concurrency

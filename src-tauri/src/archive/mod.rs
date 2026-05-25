@@ -1,7 +1,9 @@
+pub mod backend_sevenz;
 pub mod backend_zip;
 
 use crate::error::CheesyError;
 use crate::models::{VfsNode, VirtualFileSystem};
+use backend_sevenz::BackendSevenZ;
 use backend_zip::BackendZip;
 use std::fs::File;
 use std::io::Read;
@@ -59,7 +61,7 @@ pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyErro
 
     // 7z (7z\xBC\xAF\x27\x1C)
     if bytes_read >= 6 && buffer[0..6] == [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C] {
-        // return Ok(Box::new(BackendLibarchive));
+        return Ok(Box::new(BackendSevenZ));
     }
 
     // GZip (\x1F\x8B)
@@ -79,6 +81,7 @@ pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyErro
 
     match ext.as_str() {
         "zip" | "cbz" => Ok(Box::new(BackendZip)),
+        "7z" => Ok(Box::new(BackendSevenZ)),
         _ => Err(CheesyError::UnsupportedFormat(format!(
             "Unrecognized magic bytes and unsupported extension: {}",
             ext
