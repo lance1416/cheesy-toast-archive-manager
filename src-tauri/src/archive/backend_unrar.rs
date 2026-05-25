@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use unrar::Archive;
 
@@ -23,11 +23,14 @@ fn make_password_bytes(password: &str, encoding: Option<&str>) -> Result<Vec<u8>
 impl ArchiveBackend for BackendUnrar {
     fn parse_upfront(
         &self,
-        path: &Path,
+        paths: &[PathBuf],
         filename_encoding: Option<&str>,
         password: Option<&str>,
         password_encoding: Option<&str>,
     ) -> Result<VirtualFileSystem, CheesyError> {
+        // UnRAR SDK follows multi-volume chains automatically from the first part path.
+        let path = &paths[0];
+
         let password_bytes: Option<Vec<u8>> = password
             .map(|p| make_password_bytes(p, password_encoding))
             .transpose()?;
@@ -72,12 +75,15 @@ impl ArchiveBackend for BackendUnrar {
 
     fn extract_node(
         &self,
-        archive_path: &Path,
+        paths: &[PathBuf],
         node: &VfsNode,
         dest: &Path,
         password: Option<&str>,
         password_encoding: Option<&str>,
     ) -> Result<(), CheesyError> {
+        // UnRAR SDK follows multi-volume chains automatically from the first part path.
+        let archive_path = &paths[0];
+
         let password_bytes: Option<Vec<u8>> = password
             .map(|p| make_password_bytes(p, password_encoding))
             .transpose()?;
@@ -133,11 +139,15 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    // Fixtures are the version.rar and crypted.rar files from the unrar crate's own test suite,
-    // copied to src-tauri/data/. Tests must run from the src-tauri/ directory (see CLAUDE.md).
+    // Fixtures are copied from the unrar crate's own test suite into src-tauri/data/.
+    // Tests must run from the src-tauri/ directory (see CLAUDE.md).
     //
-    //   version.rar  — single file "VERSION" containing "unrar-0.4.0", unencrypted
-    //   crypted.rar  — single file ".gitignore" containing "target\nCargo.lock\n", password "unrar"
+    //   version.rar      — single file "VERSION" containing "unrar-0.4.0", unencrypted
+    //   crypted.rar      — single file ".gitignore" containing "target\nCargo.lock\n", password "unrar"
+    //   multi.part1.rar  — first volume of a two-part RAR5 set:
+    //                       vol1_content.txt (4809 B, starts "fileone:ABCDEFGH…")
+    //                       vol2_content.txt (4809 B, starts "filetwo:IJKLMNOP…")
+    //   multi.part2.rar  — second volume of the above set
 
     // ── parse_upfront ────────────────────────────────────────────────────────
 
@@ -145,7 +155,9 @@ mod tests {
     fn parse_upfront_returns_correct_entry_count_and_archive_path() {
         let path = PathBuf::from("data/version.rar");
 
-        let vfs = BackendUnrar.parse_upfront(&path, None, None, None).unwrap();
+        let vfs = BackendUnrar
+            .parse_upfront(&[path.clone()], None, None, None)
+            .unwrap();
 
         assert_eq!(vfs.total_entries, 1);
         assert_eq!(vfs.entries.len(), 1);
@@ -156,7 +168,9 @@ mod tests {
     fn parse_upfront_file_has_correct_metadata() {
         let path = PathBuf::from("data/version.rar");
 
-        let vfs = BackendUnrar.parse_upfront(&path, None, None, None).unwrap();
+        let vfs = BackendUnrar
+            .parse_upfront(&[path], None, None, None)
+            .unwrap();
 
         let node = vfs.entries.iter().find(|n| n.name == "VERSION").unwrap();
         assert_eq!(node.path, "VERSION");
@@ -169,7 +183,7 @@ mod tests {
         let path = PathBuf::from("data/version.rar");
 
         let vfs = BackendUnrar
-            .parse_upfront(&path, Some("GBK"), None, None)
+            .parse_upfront(&[path], Some("GBK"), None, None)
             .unwrap();
 
         assert!(vfs.entries.iter().all(|n| n.encoding_used == "GBK"));
@@ -180,7 +194,9 @@ mod tests {
         // RAR4 encrypted-data archives expose headers without a password
         let path = PathBuf::from("data/crypted.rar");
 
-        let vfs = BackendUnrar.parse_upfront(&path, None, None, None).unwrap();
+        let vfs = BackendUnrar
+            .parse_upfront(&[path], None, None, None)
+            .unwrap();
 
         assert_eq!(vfs.total_entries, 1);
         assert_eq!(vfs.entries[0].name, ".gitignore");
@@ -192,7 +208,9 @@ mod tests {
     fn extract_node_produces_exact_file_content() {
         let path = PathBuf::from("data/version.rar");
 
-        let vfs = BackendUnrar.parse_upfront(&path, None, None, None).unwrap();
+        let vfs = BackendUnrar
+            .parse_upfront(&[path.clone()], None, None, None)
+            .unwrap();
         let node = vfs
             .entries
             .iter()
@@ -203,7 +221,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendUnrar
-            .extract_node(&path, &node, &dest, None, None)
+            .extract_node(&[path], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read_to_string(dest).unwrap(), "unrar-0.4.0");
@@ -213,13 +231,15 @@ mod tests {
     fn extract_node_creates_intermediate_directories() {
         let path = PathBuf::from("data/version.rar");
 
-        let vfs = BackendUnrar.parse_upfront(&path, None, None, None).unwrap();
+        let vfs = BackendUnrar
+            .parse_upfront(&[path.clone()], None, None, None)
+            .unwrap();
         let node = vfs.entries.iter().next().unwrap().clone();
 
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("a").join("b").join("out.txt");
         BackendUnrar
-            .extract_node(&path, &node, &dest, None, None)
+            .extract_node(&[path], &node, &dest, None, None)
             .unwrap();
 
         assert!(dest.exists());
@@ -239,7 +259,7 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let result =
-            BackendUnrar.extract_node(&path, &ghost_node, &tmp.path().join("x"), None, None);
+            BackendUnrar.extract_node(&[path], &ghost_node, &tmp.path().join("x"), None, None);
 
         assert!(matches!(result, Err(CheesyError::Parse(_))));
     }
@@ -248,7 +268,9 @@ mod tests {
     fn extract_node_with_correct_password_succeeds() {
         let path = PathBuf::from("data/crypted.rar");
 
-        let vfs = BackendUnrar.parse_upfront(&path, None, None, None).unwrap();
+        let vfs = BackendUnrar
+            .parse_upfront(&[path.clone()], None, None, None)
+            .unwrap();
         let node = vfs
             .entries
             .iter()
@@ -259,7 +281,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendUnrar
-            .extract_node(&path, &node, &dest, Some("unrar"), None)
+            .extract_node(&[path], &node, &dest, Some("unrar"), None)
             .unwrap();
 
         assert_eq!(
@@ -272,7 +294,9 @@ mod tests {
     fn extract_node_with_wrong_password_returns_error() {
         let path = PathBuf::from("data/crypted.rar");
 
-        let vfs = BackendUnrar.parse_upfront(&path, None, None, None).unwrap();
+        let vfs = BackendUnrar
+            .parse_upfront(&[path.clone()], None, None, None)
+            .unwrap();
         let node = vfs
             .entries
             .iter()
@@ -282,8 +306,22 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
-        let result = BackendUnrar.extract_node(&path, &node, &dest, Some("wrong"), None);
+        let result = BackendUnrar.extract_node(&[path], &node, &dest, Some("wrong"), None);
 
         assert!(result.is_err());
     }
+
+    // ── multi-volume ─────────────────────────────────────────────────────────
+    //
+    // NOTE: The `unrar` crate (v0.5.8) has a crash bug in its UCM_CHANGEVOLUMEW
+    // callback for RAR5 multi-volume archives — `p1` can be null and
+    // `WideCString::from_ptr_truncate` will SIGABRT. RAR4 multi-volume listing
+    // works (the unrar crate's own `list_missing_volume` test confirms this), but
+    // we cannot create RAR4 archives with RAR 7.x tools (RAR5 is the default).
+    //
+    // Multi-volume RAR support is architecturally sound: `BackendUnrar::parse_upfront`
+    // and `extract_node` pass `paths[0]` to the UnRAR SDK, which follows the volume
+    // chain automatically. When the crate ships a fixed callback, the
+    // `data/multi.part1.rar` / `data/multi.part2.rar` fixtures (RAR5, two-part) can
+    // be used to add a round-trip test here.
 }

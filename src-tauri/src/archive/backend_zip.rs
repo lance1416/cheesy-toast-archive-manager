@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
 use crate::archive::ArchiveBackend;
@@ -12,11 +12,13 @@ pub struct BackendZip;
 impl ArchiveBackend for BackendZip {
     fn parse_upfront(
         &self,
-        path: &Path,
+        paths: &[PathBuf],
         filename_encoding: Option<&str>,
         _password: Option<&str>,
         _password_encoding: Option<&str>,
     ) -> Result<VirtualFileSystem, CheesyError> {
+        // BackendZip only handles single-file ZIPs; split ZIPs are routed to BackendLibarchive.
+        let path = &paths[0];
         let file = File::open(path)?;
         let mut archive = ZipArchive::new(file)?;
 
@@ -53,12 +55,13 @@ impl ArchiveBackend for BackendZip {
 
     fn extract_node(
         &self,
-        archive_path: &Path,
+        paths: &[PathBuf],
         node: &VfsNode,
         dest: &Path,
         password: Option<&str>,
         password_encoding: Option<&str>,
     ) -> Result<(), CheesyError> {
+        let archive_path = &paths[0];
         let file = File::open(archive_path)?;
         let mut archive = ZipArchive::new(file)?;
 
@@ -78,7 +81,6 @@ impl ArchiveBackend for BackendZip {
             None => archive.by_name(&node.path)?,
         };
 
-        // ... streaming to disk remains the same ...
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -128,7 +130,7 @@ mod tests {
     #[test]
     fn parse_upfront_returns_correct_entry_count_and_archive_path() {
         let vfs = BackendZip
-            .parse_upfront(&test_zip_path(), None, None, None)
+            .parse_upfront(&[test_zip_path()], None, None, None)
             .unwrap();
         assert_eq!(vfs.total_entries, 3);
         assert_eq!(vfs.entries.len(), 3);
@@ -138,7 +140,7 @@ mod tests {
     #[test]
     fn parse_upfront_root_file_has_correct_metadata() {
         let vfs = BackendZip
-            .parse_upfront(&test_zip_path(), None, None, None)
+            .parse_upfront(&[test_zip_path()], None, None, None)
             .unwrap();
         let node = vfs.entries.iter().find(|n| n.path == "file.txt").unwrap();
         assert_eq!(node.name, "file.txt");
@@ -150,7 +152,7 @@ mod tests {
     #[test]
     fn parse_upfront_directory_entry_is_marked_as_dir() {
         let vfs = BackendZip
-            .parse_upfront(&test_zip_path(), None, None, None)
+            .parse_upfront(&[test_zip_path()], None, None, None)
             .unwrap();
         let dir_node = vfs.entries.iter().find(|n| n.name == "folder").unwrap();
         assert!(dir_node.is_dir);
@@ -160,7 +162,7 @@ mod tests {
     #[test]
     fn parse_upfront_nested_file_has_correct_path_and_name() {
         let vfs = BackendZip
-            .parse_upfront(&test_zip_path(), None, None, None)
+            .parse_upfront(&[test_zip_path()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -176,7 +178,7 @@ mod tests {
     #[test]
     fn parse_upfront_explicit_encoding_hint_is_recorded_on_all_nodes() {
         let vfs = BackendZip
-            .parse_upfront(&test_zip_path(), Some("GBK"), None, None)
+            .parse_upfront(&[test_zip_path()], Some("GBK"), None, None)
             .unwrap();
         assert!(vfs.entries.iter().all(|n| n.encoding_used == "GBK"));
     }
@@ -186,7 +188,7 @@ mod tests {
     #[test]
     fn extract_node_produces_exact_file_content() {
         let vfs = BackendZip
-            .parse_upfront(&test_zip_path(), None, None, None)
+            .parse_upfront(&[test_zip_path()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -198,7 +200,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendZip
-            .extract_node(&test_zip_path(), &node, &dest, None, None)
+            .extract_node(&[test_zip_path()], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), b"file.txt\n");
@@ -207,7 +209,7 @@ mod tests {
     #[test]
     fn extract_node_creates_intermediate_directories() {
         let vfs = BackendZip
-            .parse_upfront(&test_zip_path(), None, None, None)
+            .parse_upfront(&[test_zip_path()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -219,7 +221,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("deep").join("nested").join("out.txt");
         BackendZip
-            .extract_node(&test_zip_path(), &node, &dest, None, None)
+            .extract_node(&[test_zip_path()], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), b"another_file.txt\n");
@@ -231,7 +233,7 @@ mod tests {
         let (_dir, zip_path) = make_encrypted_zip(b"correct-password", "secret.txt", content);
 
         let vfs = BackendZip
-            .parse_upfront(&zip_path, None, None, None)
+            .parse_upfront(&[zip_path.clone()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -243,7 +245,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendZip
-            .extract_node(&zip_path, &node, &dest, Some("correct-password"), None)
+            .extract_node(&[zip_path], &node, &dest, Some("correct-password"), None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
@@ -254,7 +256,7 @@ mod tests {
         let (_dir, zip_path) = make_encrypted_zip(b"correct", "secret.txt", b"data");
 
         let vfs = BackendZip
-            .parse_upfront(&zip_path, None, None, None)
+            .parse_upfront(&[zip_path.clone()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -265,7 +267,7 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
-        let result = BackendZip.extract_node(&zip_path, &node, &dest, Some("wrong"), None);
+        let result = BackendZip.extract_node(&[zip_path], &node, &dest, Some("wrong"), None);
 
         assert!(matches!(result, Err(CheesyError::Parse(_))));
     }
@@ -279,7 +281,7 @@ mod tests {
         let (_dir, zip_path) = make_encrypted_zip(&gbk_bytes, "secret.txt", content);
 
         let vfs = BackendZip
-            .parse_upfront(&zip_path, None, None, None)
+            .parse_upfront(&[zip_path.clone()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -292,7 +294,7 @@ mod tests {
         let dest = tmp.path().join("out.txt");
         // The user types the UTF-8 string "测试"; the backend re-encodes it to GBK before decryption
         BackendZip
-            .extract_node(&zip_path, &node, &dest, Some("测试"), Some("GBK"))
+            .extract_node(&[zip_path], &node, &dest, Some("测试"), Some("GBK"))
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);

@@ -1,6 +1,7 @@
 use sevenz_rust2::{ArchiveReader, Password};
 use std::fs::File;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use crate::archive::ArchiveBackend;
 use crate::encoding::{decode_bytes, encode_string};
@@ -29,19 +30,49 @@ fn make_password(password: Option<&str>, encoding: Option<&str>) -> Result<Passw
     }
 }
 
+/// Resolves multiple volume paths into a single readable path.
+/// Single-volume archives are returned as-is. Multi-volume archives are concatenated
+/// into a temporary file whose lifetime is tied to the returned `TempOrOwned`.
+fn resolve_path(paths: &[PathBuf]) -> Result<TempOrOwned, CheesyError> {
+    if paths.len() == 1 {
+        return Ok(TempOrOwned::Owned(paths[0].clone()));
+    }
+    let mut tmp = tempfile::NamedTempFile::new().map_err(CheesyError::Io)?;
+    for part in paths {
+        let mut f = File::open(part).map_err(CheesyError::Io)?;
+        io::copy(&mut f, &mut tmp).map_err(CheesyError::Io)?;
+    }
+    Ok(TempOrOwned::Temp(tmp))
+}
+
+enum TempOrOwned {
+    Temp(tempfile::NamedTempFile),
+    Owned(PathBuf),
+}
+
+impl TempOrOwned {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Temp(t) => t.path(),
+            Self::Owned(p) => p.as_path(),
+        }
+    }
+}
+
 impl ArchiveBackend for BackendSevenZ {
     fn parse_upfront(
         &self,
-        path: &Path,
+        paths: &[PathBuf],
         filename_encoding: Option<&str>,
         password: Option<&str>,
         password_encoding: Option<&str>,
     ) -> Result<VirtualFileSystem, CheesyError> {
         let pass = make_password(password, password_encoding)?;
+        let resolved = resolve_path(paths)?;
 
         // Metadata lives in the archive header — no decompression needed.
-        let reader =
-            ArchiveReader::open(path, pass).map_err(|e| CheesyError::Parse(e.to_string()))?;
+        let reader = ArchiveReader::open(resolved.path(), pass)
+            .map_err(|e| CheesyError::Parse(e.to_string()))?;
 
         let entries = reader
             .archive()
@@ -71,7 +102,7 @@ impl ArchiveBackend for BackendSevenZ {
             .collect::<Vec<_>>();
 
         Ok(VirtualFileSystem {
-            archive_path: path.to_string_lossy().to_string(),
+            archive_path: paths[0].to_string_lossy().to_string(),
             total_entries: entries.len(),
             entries,
         })
@@ -79,15 +110,16 @@ impl ArchiveBackend for BackendSevenZ {
 
     fn extract_node(
         &self,
-        archive_path: &Path,
+        paths: &[PathBuf],
         node: &VfsNode,
         dest: &Path,
         password: Option<&str>,
         password_encoding: Option<&str>,
     ) -> Result<(), CheesyError> {
         let pass = make_password(password, password_encoding)?;
+        let resolved = resolve_path(paths)?;
 
-        let mut reader = ArchiveReader::open(archive_path, pass)
+        let mut reader = ArchiveReader::open(resolved.path(), pass)
             .map_err(|e| CheesyError::Parse(e.to_string()))?;
 
         let target = &node.path;
@@ -115,7 +147,7 @@ impl ArchiveBackend for BackendSevenZ {
                         io_err = Some(e);
                         Ok(false)
                     }
-                    Ok(mut out) => match std::io::copy(r, &mut out) {
+                    Ok(mut out) => match io::copy(r, &mut out) {
                         Err(e) => {
                             io_err = Some(e);
                             Ok(false)
@@ -182,7 +214,7 @@ mod tests {
         let (_dir, archive_path) = make_7z("hello.txt", content);
 
         let vfs = BackendSevenZ
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
 
         assert_eq!(vfs.total_entries, 1);
@@ -196,7 +228,7 @@ mod tests {
         let (_dir, archive_path) = make_7z("hello.txt", content);
 
         let vfs = BackendSevenZ
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path], None, None, None)
             .unwrap();
 
         let node = vfs.entries.iter().find(|n| n.name == "hello.txt").unwrap();
@@ -211,7 +243,7 @@ mod tests {
         let (_dir, archive_path) = make_7z("hello.txt", b"data");
 
         let vfs = BackendSevenZ
-            .parse_upfront(&archive_path, Some("GBK"), None, None)
+            .parse_upfront(&[archive_path], Some("GBK"), None, None)
             .unwrap();
 
         assert!(vfs.entries.iter().all(|n| n.encoding_used == "GBK"));
@@ -225,7 +257,7 @@ mod tests {
         let (_dir, archive_path) = make_7z("file.txt", content);
 
         let vfs = BackendSevenZ
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -237,7 +269,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendSevenZ
-            .extract_node(&archive_path, &node, &dest, None, None)
+            .extract_node(&[archive_path], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
@@ -249,14 +281,14 @@ mod tests {
         let (_dir, archive_path) = make_7z("file.txt", content);
 
         let vfs = BackendSevenZ
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
         let node = vfs.entries.iter().next().unwrap().clone();
 
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("a").join("b").join("out.txt");
         BackendSevenZ
-            .extract_node(&archive_path, &node, &dest, None, None)
+            .extract_node(&[archive_path], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
@@ -276,7 +308,7 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let result = BackendSevenZ.extract_node(
-            &archive_path,
+            &[archive_path],
             &ghost_node,
             &tmp.path().join("x"),
             None,
@@ -292,7 +324,7 @@ mod tests {
         let (_dir, archive_path) = make_encrypted_7z("secret.txt", content, "correct-pass");
 
         let vfs = BackendSevenZ
-            .parse_upfront(&archive_path, None, Some("correct-pass"), None)
+            .parse_upfront(&[archive_path.clone()], None, Some("correct-pass"), None)
             .unwrap();
         let node = vfs
             .entries
@@ -304,7 +336,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendSevenZ
-            .extract_node(&archive_path, &node, &dest, Some("correct-pass"), None)
+            .extract_node(&[archive_path], &node, &dest, Some("correct-pass"), None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
@@ -315,7 +347,7 @@ mod tests {
         let (_dir, archive_path) = make_encrypted_7z("secret.txt", b"data", "correct");
 
         let vfs = BackendSevenZ
-            .parse_upfront(&archive_path, None, Some("correct"), None)
+            .parse_upfront(&[archive_path.clone()], None, Some("correct"), None)
             .unwrap();
         let node = vfs
             .entries
@@ -326,8 +358,46 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
-        let result = BackendSevenZ.extract_node(&archive_path, &node, &dest, Some("wrong"), None);
+        let result = BackendSevenZ.extract_node(&[archive_path], &node, &dest, Some("wrong"), None);
 
         assert!(result.is_err());
+    }
+
+    // ── multi-volume ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn multivolume_7z_parse_and_extract_via_concatenation() {
+        let content = b"multi-volume 7z content";
+        let (_dir, archive_path) = make_7z("data.txt", content);
+
+        // Simulate a two-part split by splitting the archive bytes at the midpoint
+        let archive_bytes = std::fs::read(&archive_path).unwrap();
+        let mid = archive_bytes.len() / 2;
+
+        let vol_dir = tempfile::tempdir().unwrap();
+        let part1 = vol_dir.path().join("split.7z.001");
+        let part2 = vol_dir.path().join("split.7z.002");
+        std::fs::write(&part1, &archive_bytes[..mid]).unwrap();
+        std::fs::write(&part2, &archive_bytes[mid..]).unwrap();
+
+        let vfs = BackendSevenZ
+            .parse_upfront(&[part1.clone(), part2.clone()], None, None, None)
+            .unwrap();
+
+        assert_eq!(vfs.total_entries, 1);
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.name == "data.txt")
+            .unwrap()
+            .clone();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendSevenZ
+            .extract_node(&[part1, part2], &node, &dest, None, None)
+            .unwrap();
+
+        assert_eq!(std::fs::read(dest).unwrap(), content);
     }
 }

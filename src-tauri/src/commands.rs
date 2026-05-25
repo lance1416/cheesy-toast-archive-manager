@@ -5,6 +5,8 @@ use tokio::sync::Semaphore;
 
 use crate::archive::get_backend;
 use crate::archive::writer::{collect_entries, ArchiveWriter, WriteOptions};
+use crate::archive::writer_libarchive::{TarArchiveWriter, TarCompression};
+use crate::archive::writer_sevenz::SevenZArchiveWriter;
 use crate::archive::writer_zip::ZipArchiveWriter;
 use crate::error::CheesyError;
 use crate::models::{VfsNode, VirtualFileSystem};
@@ -32,9 +34,9 @@ pub async fn open_archive(
 ) -> Result<VirtualFileSystem, CheesyError> {
     let archive_path = PathBuf::from(&path);
 
-    let backend = get_backend(&archive_path)?;
+    let (backend, paths) = get_backend(&archive_path)?;
 
-    let vfs = backend.parse_upfront(&archive_path, fallback_encoding.as_deref(), None, None)?;
+    let vfs = backend.parse_upfront(&paths, fallback_encoding.as_deref(), None, None)?;
 
     let mut current_vfs_lock = state
         .current_vfs
@@ -56,12 +58,13 @@ pub async fn extract_nodes(
     app_handle: AppHandle,
     _state: State<'_, AppState>,
 ) -> Result<(), CheesyError> {
-    let archive_path = PathBuf::from(archive_path_str);
+    let archive_path = PathBuf::from(&archive_path_str);
     let dest_dir = PathBuf::from(dest_path_str);
 
-    let backend = get_backend(&archive_path)?;
-    // We wrap the backend in an Arc so we can share it safely across Tokios threads
+    let (backend, paths) = get_backend(&archive_path)?;
+    // We wrap the backend and paths in Arcs so they can be shared safely across Tokio threads
     let shared_backend = Arc::new(backend);
+    let shared_paths = Arc::new(paths);
 
     // Filter out directories (we create them synchronously first, or just let the file extractor do it)
     let files_to_extract: Vec<VfsNode> = nodes.into_iter().filter(|n| !n.is_dir).collect();
@@ -81,7 +84,7 @@ pub async fn extract_nodes(
         let permit = semaphore.clone().acquire_owned().await.unwrap();
 
         let backend_clone = Arc::clone(&shared_backend);
-        let archive_path_clone = archive_path.clone();
+        let paths_clone = Arc::clone(&shared_paths);
         let dest_file_path = dest_dir.join(&node.path);
         let app_handle_clone = app_handle.clone();
         let counter_clone = Arc::clone(&completed_counter);
@@ -94,7 +97,7 @@ pub async fn extract_nodes(
             let pass_enc_deref = pass_enc_clone.as_deref().map(|s| s.as_str());
 
             let result = backend_clone.extract_node(
-                &archive_path_clone,
+                &paths_clone,
                 &node,
                 &dest_file_path,
                 pass_deref,
@@ -133,6 +136,7 @@ pub async fn extract_nodes(
 pub async fn create_archive(
     source_paths: Vec<String>,
     dest_path: String,
+    format: String,
     compression_level: Option<u8>,
     app_handle: AppHandle,
 ) -> Result<(), CheesyError> {
@@ -153,8 +157,30 @@ pub async fn create_archive(
 
     let options = WriteOptions { compression_level };
 
-    // ZipWriter is not Send, so we run it on a dedicated blocking thread.
-    tokio::task::spawn_blocking(move || ZipArchiveWriter.create(&entries, &dest, &options))
+    let writer: Box<dyn ArchiveWriter + Send + Sync> = match format.as_str() {
+        "zip" => Box::new(ZipArchiveWriter),
+        "7z" => Box::new(SevenZArchiveWriter),
+        "tar" => Box::new(TarArchiveWriter {
+            compression: TarCompression::None,
+        }),
+        "tar.gz" | "tgz" => Box::new(TarArchiveWriter {
+            compression: TarCompression::Gzip,
+        }),
+        "tar.bz2" => Box::new(TarArchiveWriter {
+            compression: TarCompression::Bzip2,
+        }),
+        "tar.xz" => Box::new(TarArchiveWriter {
+            compression: TarCompression::Xz,
+        }),
+        other => {
+            return Err(CheesyError::UnsupportedFormat(format!(
+                "Cannot create archives in '{}' format",
+                other
+            )))
+        }
+    };
+
+    tokio::task::spawn_blocking(move || writer.create(&entries, &dest, &options))
         .await
         .map_err(|_| CheesyError::Parse("Compression thread panicked".into()))??;
 

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use libarchive2::{FileType, ReadArchive};
 
@@ -9,23 +9,26 @@ use crate::models::{VfsNode, VirtualFileSystem};
 
 pub struct BackendLibarchive;
 
-fn open_archive<'a>(path: &Path, password: Option<&str>) -> Result<ReadArchive<'a>, CheesyError> {
-    let res = match password {
-        None => ReadArchive::open(path),
-        Some(pass) => ReadArchive::open_with_passphrase(path, pass),
+fn open_archive<'a>(
+    paths: &[PathBuf],
+    password: Option<&str>,
+) -> Result<ReadArchive<'a>, CheesyError> {
+    let result = match password {
+        None => ReadArchive::open_filenames(paths),
+        Some(pass) => ReadArchive::open_filenames_with_passphrase(paths, pass),
     };
-    res.map_err(|e| CheesyError::Parse(e.to_string()))
+    result.map_err(|e| CheesyError::Parse(e.to_string()))
 }
 
 impl ArchiveBackend for BackendLibarchive {
     fn parse_upfront(
         &self,
-        path: &Path,
+        paths: &[PathBuf],
         filename_encoding: Option<&str>,
         password: Option<&str>,
         _password_encoding: Option<&str>,
     ) -> Result<VirtualFileSystem, CheesyError> {
-        let mut archive = open_archive(path, password)?;
+        let mut archive = open_archive(paths, password)?;
         let mut entries = Vec::new();
 
         while let Some(entry) = archive
@@ -54,7 +57,7 @@ impl ArchiveBackend for BackendLibarchive {
         }
 
         Ok(VirtualFileSystem {
-            archive_path: path.to_string_lossy().to_string(),
+            archive_path: paths[0].to_string_lossy().to_string(),
             total_entries: entries.len(),
             entries,
         })
@@ -62,13 +65,13 @@ impl ArchiveBackend for BackendLibarchive {
 
     fn extract_node(
         &self,
-        archive_path: &Path,
+        paths: &[PathBuf],
         node: &VfsNode,
         dest: &Path,
         password: Option<&str>,
         _password_encoding: Option<&str>,
     ) -> Result<(), CheesyError> {
-        let mut archive = open_archive(archive_path, password)?;
+        let mut archive = open_archive(paths, password)?;
 
         loop {
             match archive
@@ -156,7 +159,7 @@ mod tests {
         let (_dir, archive_path) = make_tar_gz("hello.txt", content);
 
         let vfs = BackendLibarchive
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
 
         assert_eq!(vfs.total_entries, 1);
@@ -170,7 +173,7 @@ mod tests {
         let (_dir, archive_path) = make_tar_gz("hello.txt", content);
 
         let vfs = BackendLibarchive
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path], None, None, None)
             .unwrap();
 
         let node = vfs.entries.iter().find(|n| n.name == "hello.txt").unwrap();
@@ -185,7 +188,7 @@ mod tests {
         let (_dir, archive_path) = make_tar_gz("hello.txt", b"data");
 
         let vfs = BackendLibarchive
-            .parse_upfront(&archive_path, Some("GBK"), None, None)
+            .parse_upfront(&[archive_path], Some("GBK"), None, None)
             .unwrap();
 
         assert!(vfs.entries.iter().all(|n| n.encoding_used == "GBK"));
@@ -199,7 +202,7 @@ mod tests {
         let (_dir, archive_path) = make_tar_gz("file.txt", content);
 
         let vfs = BackendLibarchive
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -211,7 +214,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendLibarchive
-            .extract_node(&archive_path, &node, &dest, None, None)
+            .extract_node(&[archive_path], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
@@ -223,14 +226,14 @@ mod tests {
         let (_dir, archive_path) = make_tar_gz("file.txt", content);
 
         let vfs = BackendLibarchive
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
         let node = vfs.entries.iter().next().unwrap().clone();
 
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("a").join("b").join("out.txt");
         BackendLibarchive
-            .extract_node(&archive_path, &node, &dest, None, None)
+            .extract_node(&[archive_path], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
@@ -250,7 +253,7 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let result = BackendLibarchive.extract_node(
-            &archive_path,
+            &[archive_path],
             &ghost_node,
             &tmp.path().join("x"),
             None,
@@ -266,7 +269,7 @@ mod tests {
         let (_dir, archive_path) = make_tar_bz2("data.txt", content);
 
         let vfs = BackendLibarchive
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -278,7 +281,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendLibarchive
-            .extract_node(&archive_path, &node, &dest, None, None)
+            .extract_node(&[archive_path], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
@@ -290,7 +293,7 @@ mod tests {
         let (_dir, archive_path) = make_tar_xz("data.txt", content);
 
         let vfs = BackendLibarchive
-            .parse_upfront(&archive_path, None, None, None)
+            .parse_upfront(&[archive_path.clone()], None, None, None)
             .unwrap();
         let node = vfs
             .entries
@@ -302,7 +305,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dest = tmp.path().join("out.txt");
         BackendLibarchive
-            .extract_node(&archive_path, &node, &dest, None, None)
+            .extract_node(&[archive_path], &node, &dest, None, None)
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
