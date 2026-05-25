@@ -1,8 +1,10 @@
+pub mod backend_libarchive;
 pub mod backend_sevenz;
 pub mod backend_zip;
 
 use crate::error::CheesyError;
 use crate::models::{VfsNode, VirtualFileSystem};
+use backend_libarchive::BackendLibarchive;
 use backend_sevenz::BackendSevenZ;
 use backend_zip::BackendZip;
 use std::fs::File;
@@ -56,7 +58,7 @@ pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyErro
     if bytes_read >= 7 && buffer[0..7] == [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]
         || bytes_read >= 8 && buffer[0..8] == [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00]
     {
-        // return Ok(Box::new(BackendUnrar));
+        return Ok(Box::new(BackendLibarchive));
     }
 
     // 7z (7z\xBC\xAF\x27\x1C)
@@ -66,7 +68,17 @@ pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyErro
 
     // GZip (\x1F\x8B)
     if bytes_read >= 2 && buffer[0..2] == [0x1F, 0x8B] {
-        // return Ok(Box::new(BackendLibarchive));
+        return Ok(Box::new(BackendLibarchive));
+    }
+
+    // Bzip2 (BZh)
+    if bytes_read >= 3 && buffer[0..3] == [0x42, 0x5A, 0x68] {
+        return Ok(Box::new(BackendLibarchive));
+    }
+
+    // XZ (\xFD7zXZ\x00)
+    if bytes_read >= 6 && buffer[0..6] == [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00] {
+        return Ok(Box::new(BackendLibarchive));
     }
 
     // -----------------------------------------------
@@ -82,6 +94,7 @@ pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyErro
     match ext.as_str() {
         "zip" | "cbz" => Ok(Box::new(BackendZip)),
         "7z" => Ok(Box::new(BackendSevenZ)),
+        "tar" | "gz" | "tgz" | "bz2" | "xz" | "rar" | "cbr" => Ok(Box::new(BackendLibarchive)),
         _ => Err(CheesyError::UnsupportedFormat(format!(
             "Unrecognized magic bytes and unsupported extension: {}",
             ext
