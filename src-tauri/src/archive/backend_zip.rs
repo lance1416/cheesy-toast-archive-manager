@@ -60,8 +60,17 @@ impl ArchiveBackend for BackendZip {
         _dest: &Path,
         _password: Option<&str>,
     ) -> Result<(), CheesyError> {
-        // We will implement extraction later. For now, just return Ok.
-        // The VFS parsing is the priority.
+        let file = File::open(_archive_path)?;
+        let mut archive = ZipArchive::new(file)?;
+
+        // Find the specific file in the zip
+        let mut zipped_file = archive.by_name(&_node.path)?;
+
+        // Create the destination file on the OS
+        let mut output_file = File::create(_dest)?;
+
+        std::io::copy(&mut zipped_file, &mut output_file)?;
+
         Ok(())
     }
 }
