@@ -9,10 +9,12 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev",
     "commit": "cz"
   },
   "dependencies": {
     "@iconify/vue": "^5.0.1",
+    "@tanstack/vue-virtual": "3.13.25",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "pinia": "^3.0.4",
