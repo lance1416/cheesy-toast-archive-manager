@@ -4,9 +4,18 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Semaphore;
 
 use crate::archive::get_backend;
+use crate::archive::writer::{collect_entries, ArchiveWriter, WriteOptions};
+use crate::archive::writer_zip::ZipArchiveWriter;
 use crate::error::CheesyError;
 use crate::models::{VfsNode, VirtualFileSystem};
 use crate::state::AppState;
+
+#[derive(Clone, serde::Serialize)]
+pub struct CompressionProgress {
+    pub total_files: usize,
+    pub files_completed: usize,
+    pub current_file_name: String,
+}
 
 #[derive(Clone, serde::Serialize)]
 pub struct ExtractionProgress {
@@ -116,6 +125,47 @@ pub async fn extract_nodes(
         // handle.unwrap() handles Tokio panics, the inner ? handles our CheesyError
         handle.map_err(|_| CheesyError::Parse("Tokio thread panicked".into()))??;
     }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn create_archive(
+    source_paths: Vec<String>,
+    dest_path: String,
+    compression_level: Option<u8>,
+    app_handle: AppHandle,
+) -> Result<(), CheesyError> {
+    let dest = PathBuf::from(dest_path);
+    let sources: Vec<PathBuf> = source_paths.into_iter().map(PathBuf::from).collect();
+
+    let entries = collect_entries(&sources)?;
+    let total_files = entries.len();
+
+    let _ = app_handle.emit(
+        "compression-progress",
+        CompressionProgress {
+            total_files,
+            files_completed: 0,
+            current_file_name: String::new(),
+        },
+    );
+
+    let options = WriteOptions { compression_level };
+
+    // ZipWriter is not Send, so we run it on a dedicated blocking thread.
+    tokio::task::spawn_blocking(move || ZipArchiveWriter.create(&entries, &dest, &options))
+        .await
+        .map_err(|_| CheesyError::Parse("Compression thread panicked".into()))??;
+
+    let _ = app_handle.emit(
+        "compression-progress",
+        CompressionProgress {
+            total_files,
+            files_completed: total_files,
+            current_file_name: String::new(),
+        },
+    );
 
     Ok(())
 }

@@ -2,6 +2,8 @@ pub mod backend_libarchive;
 pub mod backend_sevenz;
 pub mod backend_unrar;
 pub mod backend_zip;
+pub mod writer;
+pub mod writer_zip;
 
 use crate::error::CheesyError;
 use crate::models::{VfsNode, VirtualFileSystem};

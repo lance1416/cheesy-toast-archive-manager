@@ -18,6 +18,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::open_archive,
             commands::extract_nodes,
+            commands::create_archive,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
