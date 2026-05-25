@@ -16,7 +16,6 @@ pub struct VfsNode {
 }
 
 /// The entire virtual file system parsed upfront.
-#[expect(dead_code)] // TODO: Temporary attribute to pacify unused code warnings
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VirtualFileSystem {
     /// The absolute path to the archive file on the host OS

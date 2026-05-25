@@ -2,7 +2,6 @@ use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 use encoding_rs::Encoding;
 
 /// Decodes raw bytes into a UTF-8 String, returning the decoded string and the encoding used.
-#[allow(dead_code)]
 pub fn decode_bytes(raw: &[u8], encoding: Option<&str>) -> (String, String) {
     if let Some(label) = encoding {
         if let Some(enc) = Encoding::for_label(label.as_bytes()) {
