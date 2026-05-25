@@ -30,40 +30,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encode_pure_utf8() {
-        let text = "Password123!";
-        let encoded = encode_string(text, None).unwrap();
-
-        assert_eq!(encoded, text.as_bytes());
+    fn no_hint_returns_utf8_bytes() {
+        assert_eq!(
+            encode_string("Password123!", None).unwrap(),
+            b"Password123!"
+        );
     }
 
     #[test]
-    fn test_encode_japanese_shift_jis() {
-        let text = "テスト"; // "Test"
-        let encoded = encode_string(text, Some("Shift_JIS")).unwrap();
-
-        // Shift-JIS byte sequence for "テスト"
-        let expected: [u8; 6] = [0x83, 0x65, 0x83, 0x58, 0x83, 0x67];
-        assert_eq!(encoded, expected);
+    fn gbk_hint_encodes_chinese_correctly() {
+        let expected: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4]; // GBK for "测试"
+        assert_eq!(encode_string("测试", Some("GBK")).unwrap(), expected);
     }
 
     #[test]
-    fn test_encode_chinese_gbk() {
-        let text = "测试"; // "Test"
-        let encoded = encode_string(text, Some("GBK")).unwrap();
-
-        // GBK byte sequence for "测试"
-        let expected: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4];
-        assert_eq!(encoded, expected);
+    fn shift_jis_hint_encodes_japanese_correctly() {
+        let expected: [u8; 6] = [0x83, 0x65, 0x83, 0x58, 0x83, 0x67]; // Shift-JIS for "テスト"
+        assert_eq!(
+            encode_string("テスト", Some("Shift_JIS")).unwrap(),
+            expected
+        );
     }
 
     #[test]
-    fn test_encode_unmappable_character() {
-        // "测试" combined with a modern Emoji that didn't exist in 1990s GBK
-        let text = "测试🚀";
-        let result = encode_string(text, Some("GBK"));
-
+    fn unmappable_character_returns_err() {
+        // Emoji postdates GBK — cannot be represented
+        let result = encode_string("测试🚀", Some("GBK"));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not supported"));
+    }
+
+    #[test]
+    fn invalid_encoding_label_returns_err() {
+        let result = encode_string("test", Some("not-a-real-encoding"));
+        assert!(result.is_err());
     }
 }

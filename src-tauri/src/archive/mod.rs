@@ -14,7 +14,9 @@ pub trait ArchiveBackend: Send + Sync {
     fn parse_upfront(
         &self,
         path: &Path,
-        fallback_encoding: Option<&str>,
+        filename_encoding: Option<&str>,
+        password: Option<&str>,
+        password_encoding: Option<&str>,
     ) -> Result<VirtualFileSystem, CheesyError>;
 
     /// Extracts a specific file from the archive.
@@ -24,6 +26,7 @@ pub trait ArchiveBackend: Send + Sync {
         node: &VfsNode,
         dest: &Path,
         password: Option<&str>,
+        password_encoding: Option<&str>,
     ) -> Result<(), CheesyError>;
 }
 
@@ -91,16 +94,23 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_router_zip_selection() {
-        let path = PathBuf::from("data/file.zip");
-        let backend = get_backend(&path);
-        assert!(backend.is_ok());
+    fn zip_magic_bytes_routes_to_zip_backend() {
+        assert!(get_backend(&PathBuf::from("data/file.zip")).is_ok());
     }
 
     #[test]
-    fn test_router_unsupported_selection() {
-        let path = PathBuf::from("data/file.txt");
-        let backend = get_backend(&path);
-        assert!(backend.is_err());
+    fn plain_text_file_returns_unsupported_format_error() {
+        assert!(matches!(
+            get_backend(&PathBuf::from("data/file.txt")),
+            Err(CheesyError::UnsupportedFormat(_))
+        ));
+    }
+
+    #[test]
+    fn missing_file_returns_io_error() {
+        assert!(matches!(
+            get_backend(&PathBuf::from("data/nonexistent.zip")),
+            Err(CheesyError::Io(_))
+        ));
     }
 }

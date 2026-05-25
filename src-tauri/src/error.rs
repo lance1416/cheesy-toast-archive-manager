@@ -15,6 +15,9 @@ pub enum CheesyError {
     #[error("Encoding Error: {0}")]
     Encoding(String),
 
+    #[error("Password Required: The archive headers are encrypted.")]
+    PasswordRequired,
+
     #[error("Unsupported Format: {0}")]
     UnsupportedFormat(String),
 }

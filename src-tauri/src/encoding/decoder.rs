@@ -31,44 +31,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pure_utf8() {
-        let raw = "Hello, World!".as_bytes();
-        let (decoded, enc) = decode_bytes(raw, None);
-
-        assert_eq!(decoded, "Hello, World!");
+    fn utf8_bytes_decoded_and_reported_as_utf8() {
+        let (s, enc) = decode_bytes(b"Hello, World!", None);
+        assert_eq!(s, "Hello, World!");
         assert_eq!(enc, "UTF-8");
     }
 
     #[test]
-    fn test_japanese_shift_jis() {
-        // "テスト" (Test) encoded in Shift-JIS
-        let raw_sjis: [u8; 6] = [0x83, 0x65, 0x83, 0x58, 0x83, 0x67];
-        let (decoded, enc) = decode_bytes(&raw_sjis, None);
-
-        assert_eq!(decoded, "テスト");
-        // chardetng usually maps Shift-JIS to windows-31j (which is the Microsoft extension of Shift-JIS)
-        assert_eq!(enc, "Shift_JIS");
-    }
-
-    #[test]
-    fn test_chinese_gbk() {
-        // "测试" (Test) encoded in GBK
-        let raw_gbk: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4];
-        let (decoded, enc) = decode_bytes(&raw_gbk, None);
-
-        assert_eq!(decoded, "测试");
+    fn gbk_bytes_auto_detected_heuristically() {
+        let raw: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4]; // "测试" in GBK
+        let (s, enc) = decode_bytes(&raw, None);
+        assert_eq!(s, "测试");
         assert_eq!(enc, "GBK");
     }
 
     #[test]
-    fn test_forced_encoding() {
-        // "测试" in GBK, but we'll deliberately force Shift-JIS
-        let raw_gbk: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4];
-        let (decoded, enc) = decode_bytes(&raw_gbk, Some("Shift_JIS"));
-
-        // It will decode to gibberish (which is expected when forcing the wrong encoding),
-        // but it proves the UI override intercepts the flow.
-        assert_ne!(decoded, "测试");
+    fn shift_jis_bytes_auto_detected_heuristically() {
+        let raw: [u8; 6] = [0x83, 0x65, 0x83, 0x58, 0x83, 0x67]; // "テスト" in Shift-JIS
+        let (s, enc) = decode_bytes(&raw, None);
+        assert_eq!(s, "テスト");
         assert_eq!(enc, "Shift_JIS");
+    }
+
+    #[test]
+    fn explicit_hint_decodes_correctly_and_is_recorded() {
+        let raw: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4]; // "测试" in GBK
+        let (s, enc) = decode_bytes(&raw, Some("GBK"));
+        assert_eq!(s, "测试");
+        assert_eq!(enc, "GBK");
+    }
+
+    #[test]
+    fn explicit_hint_overrides_heuristic_even_when_wrong() {
+        // GBK bytes forced through Shift-JIS → garbled output, but Shift_JIS is recorded
+        let raw: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4];
+        let (s, enc) = decode_bytes(&raw, Some("Shift_JIS"));
+        assert_ne!(s, "测试");
+        assert_eq!(enc, "Shift_JIS");
+    }
+
+    #[test]
+    fn unknown_encoding_label_falls_through_to_heuristic() {
+        // An unrecognised label is silently ignored; chardetng still picks up GBK
+        let raw: [u8; 4] = [0xB2, 0xE2, 0xCA, 0xD4]; // "测试" in GBK
+        let (s, enc) = decode_bytes(&raw, Some("not-a-real-encoding"));
+        assert_eq!(s, "测试");
+        assert_eq!(enc, "GBK");
     }
 }
