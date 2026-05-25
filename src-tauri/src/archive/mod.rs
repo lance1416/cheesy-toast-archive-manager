@@ -1,11 +1,13 @@
 pub mod backend_libarchive;
 pub mod backend_sevenz;
+pub mod backend_unrar;
 pub mod backend_zip;
 
 use crate::error::CheesyError;
 use crate::models::{VfsNode, VirtualFileSystem};
 use backend_libarchive::BackendLibarchive;
 use backend_sevenz::BackendSevenZ;
+use backend_unrar::BackendUnrar;
 use backend_zip::BackendZip;
 use std::fs::File;
 use std::io::Read;
@@ -58,7 +60,7 @@ pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyErro
     if bytes_read >= 7 && buffer[0..7] == [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]
         || bytes_read >= 8 && buffer[0..8] == [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00]
     {
-        return Ok(Box::new(BackendLibarchive));
+        return Ok(Box::new(BackendUnrar));
     }
 
     // 7z (7z\xBC\xAF\x27\x1C)
@@ -94,7 +96,8 @@ pub fn get_backend(path: &PathBuf) -> Result<Box<dyn ArchiveBackend>, CheesyErro
     match ext.as_str() {
         "zip" | "cbz" => Ok(Box::new(BackendZip)),
         "7z" => Ok(Box::new(BackendSevenZ)),
-        "tar" | "gz" | "tgz" | "bz2" | "xz" | "rar" | "cbr" => Ok(Box::new(BackendLibarchive)),
+        "tar" | "gz" | "tgz" | "bz2" | "xz" => Ok(Box::new(BackendLibarchive)),
+        "rar" | "cbr" => Ok(Box::new(BackendUnrar)),
         _ => Err(CheesyError::UnsupportedFormat(format!(
             "Unrecognized magic bytes and unsupported extension: {}",
             ext
@@ -110,6 +113,11 @@ mod tests {
     #[test]
     fn zip_magic_bytes_routes_to_zip_backend() {
         assert!(get_backend(&PathBuf::from("data/file.zip")).is_ok());
+    }
+
+    #[test]
+    fn rar_magic_bytes_routes_to_unrar_backend() {
+        assert!(get_backend(&PathBuf::from("data/version.rar")).is_ok());
     }
 
     #[test]
