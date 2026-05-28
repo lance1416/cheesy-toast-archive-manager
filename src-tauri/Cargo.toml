@@ -42,5 +42,12 @@ thiserror = "2.0.18"
 tokio = "1.52.3"
 futures = "0.3.32"
 
+# CLI
+clap = { version = "4", features = ["derive"] }
+
 [dependencies.tempfile]
 version = "3.27.0"
+
+[[bin]]
+name = "ctam"
+path = "src/bin/cli.rs"
