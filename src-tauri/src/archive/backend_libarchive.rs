@@ -107,7 +107,27 @@ impl ArchiveBackend for BackendLibarchive {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::archive::writer::{collect_entries, ArchiveWriter, WriteOptions};
+    use crate::archive::writer_libarchive::{TarArchiveWriter, TarCompression as TC};
     use std::path::PathBuf;
+
+    /// Creates a 3-entry canonical archive (file.txt + folder/ + folder/another_file.txt)
+    /// using the given compression. Mirrors the data/file.zip structure so all backends
+    /// are exercised on identical logical content without committing binary blobs.
+    fn make_canonical_tar(compression: TC, ext: &str) -> (tempfile::TempDir, PathBuf) {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("file.txt"), b"file.txt\n").unwrap();
+        let folder = src.path().join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("another_file.txt"), b"another_file.txt\n").unwrap();
+        let entries = collect_entries(&[src.path().join("file.txt"), folder.clone()]).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let archive = out.path().join(format!("fixture.{ext}"));
+        TarArchiveWriter { compression }
+            .create(&entries, &archive, &WriteOptions::default())
+            .unwrap();
+        (out, archive)
+    }
 
     fn make_tar_gz(filename: &str, content: &[u8]) -> (tempfile::TempDir, PathBuf) {
         use libarchive2::{ArchiveFormat, CompressionFormat, WriteArchive};
@@ -309,5 +329,152 @@ mod tests {
             .unwrap();
 
         assert_eq!(std::fs::read(dest).unwrap(), content);
+    }
+
+    // ── canonical-tree fixtures (generated on-the-fly) ───────────────────────
+    // Generated archives contain 2 file entries: file.txt and folder/another_file.txt.
+    // collect_entries walks directories but does not add directory entries, so no
+    // is_dir entry appears here — that behaviour is tested via data/file.zip (BackendZip).
+
+    #[test]
+    fn tar_gz_fixture_parse_upfront_has_correct_entry_count() {
+        let (_dir, archive) = make_canonical_tar(TC::Gzip, "tar.gz");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive], None, None, None)
+            .unwrap();
+        assert_eq!(vfs.total_entries, 2);
+    }
+
+    #[test]
+    fn tar_gz_fixture_root_file_has_correct_metadata() {
+        let (_dir, archive) = make_canonical_tar(TC::Gzip, "tar.gz");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive], None, None, None)
+            .unwrap();
+        let node = vfs.entries.iter().find(|n| n.path == "file.txt").unwrap();
+        assert_eq!(node.name, "file.txt");
+        assert!(!node.is_dir);
+        assert_eq!(node.size, 9);
+        assert_eq!(node.encoding_used, "UTF-8");
+    }
+
+    #[test]
+    fn tar_gz_fixture_nested_file_has_correct_metadata() {
+        let (_dir, archive) = make_canonical_tar(TC::Gzip, "tar.gz");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive], None, None, None)
+            .unwrap();
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "folder/another_file.txt")
+            .unwrap();
+        assert_eq!(node.name, "another_file.txt");
+        assert!(!node.is_dir);
+        assert_eq!(node.size, 17);
+        assert_eq!(node.encoding_used, "UTF-8");
+    }
+
+    #[test]
+    fn tar_gz_fixture_extract_produces_exact_content() {
+        let (_dir, archive) = make_canonical_tar(TC::Gzip, "tar.gz");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive.clone()], None, None, None)
+            .unwrap();
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "file.txt")
+            .unwrap()
+            .clone();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendLibarchive
+            .extract_node(&[archive], &node, &dest, None, None)
+            .unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"file.txt\n");
+    }
+
+    #[test]
+    fn tar_gz_fixture_extract_nested_file_produces_exact_content() {
+        let (_dir, archive) = make_canonical_tar(TC::Gzip, "tar.gz");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive.clone()], None, None, None)
+            .unwrap();
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "folder/another_file.txt")
+            .unwrap()
+            .clone();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendLibarchive
+            .extract_node(&[archive], &node, &dest, None, None)
+            .unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"another_file.txt\n");
+    }
+
+    #[test]
+    fn tar_bz2_fixture_parse_and_extract_round_trip() {
+        let (_dir, archive) = make_canonical_tar(TC::Bzip2, "tar.bz2");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive.clone()], None, None, None)
+            .unwrap();
+        assert_eq!(vfs.total_entries, 2);
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "folder/another_file.txt")
+            .unwrap()
+            .clone();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendLibarchive
+            .extract_node(&[archive], &node, &dest, None, None)
+            .unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"another_file.txt\n");
+    }
+
+    #[test]
+    fn tar_xz_fixture_parse_and_extract_round_trip() {
+        let (_dir, archive) = make_canonical_tar(TC::Xz, "tar.xz");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive.clone()], None, None, None)
+            .unwrap();
+        assert_eq!(vfs.total_entries, 2);
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "file.txt")
+            .unwrap()
+            .clone();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendLibarchive
+            .extract_node(&[archive], &node, &dest, None, None)
+            .unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"file.txt\n");
+    }
+
+    #[test]
+    fn plain_tar_fixture_parse_and_extract_round_trip() {
+        let (_dir, archive) = make_canonical_tar(TC::None, "tar");
+        let vfs = BackendLibarchive
+            .parse_upfront(&[archive.clone()], None, None, None)
+            .unwrap();
+        assert_eq!(vfs.total_entries, 2);
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "file.txt")
+            .unwrap()
+            .clone();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendLibarchive
+            .extract_node(&[archive], &node, &dest, None, None)
+            .unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"file.txt\n");
     }
 }

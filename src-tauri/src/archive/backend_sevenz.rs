@@ -179,7 +179,26 @@ impl ArchiveBackend for BackendSevenZ {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::archive::writer::{collect_entries, ArchiveWriter, WriteOptions};
+    use crate::archive::writer_sevenz::SevenZArchiveWriter;
     use std::path::PathBuf;
+
+    /// Generates a 3-entry canonical 7z archive (file.txt + folder/ + folder/another_file.txt)
+    /// in a TempDir. Mirrors data/file.zip so all backends exercise identical logical content.
+    fn make_canonical_7z() -> (tempfile::TempDir, PathBuf) {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("file.txt"), b"file.txt\n").unwrap();
+        let folder = src.path().join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("another_file.txt"), b"another_file.txt\n").unwrap();
+        let entries = collect_entries(&[src.path().join("file.txt"), folder.clone()]).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let archive = out.path().join("fixture.7z");
+        SevenZArchiveWriter
+            .create(&entries, &archive, &WriteOptions::default())
+            .unwrap();
+        (out, archive)
+    }
 
     /// Creates a single-file, unencrypted 7z archive in a temp dir.
     /// Returns (TempDir — keep alive!, archive path).
@@ -361,6 +380,89 @@ mod tests {
         let result = BackendSevenZ.extract_node(&[archive_path], &node, &dest, Some("wrong"), None);
 
         assert!(result.is_err());
+    }
+
+    // ── canonical-tree fixtures (generated on-the-fly) ───────────────────────
+    // Generated archives contain 2 file entries: file.txt and folder/another_file.txt.
+    // collect_entries does not add directory entries, so no is_dir entry appears here.
+
+    #[test]
+    fn sevenz_fixture_parse_upfront_has_correct_entry_count() {
+        let (_dir, archive) = make_canonical_7z();
+        let vfs = BackendSevenZ
+            .parse_upfront(&[archive], None, None, None)
+            .unwrap();
+        assert_eq!(vfs.total_entries, 2);
+    }
+
+    #[test]
+    fn sevenz_fixture_root_file_has_correct_metadata() {
+        let (_dir, archive) = make_canonical_7z();
+        let vfs = BackendSevenZ
+            .parse_upfront(&[archive], None, None, None)
+            .unwrap();
+        let node = vfs.entries.iter().find(|n| n.path == "file.txt").unwrap();
+        assert_eq!(node.name, "file.txt");
+        assert!(!node.is_dir);
+        assert_eq!(node.size, 9);
+        assert_eq!(node.encoding_used, "UTF-8");
+    }
+
+    #[test]
+    fn sevenz_fixture_nested_file_has_correct_metadata() {
+        let (_dir, archive) = make_canonical_7z();
+        let vfs = BackendSevenZ
+            .parse_upfront(&[archive], None, None, None)
+            .unwrap();
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "folder/another_file.txt")
+            .unwrap();
+        assert_eq!(node.name, "another_file.txt");
+        assert!(!node.is_dir);
+        assert_eq!(node.size, 17);
+        assert_eq!(node.encoding_used, "UTF-8");
+    }
+
+    #[test]
+    fn sevenz_fixture_extract_produces_exact_content() {
+        let (_dir, archive) = make_canonical_7z();
+        let vfs = BackendSevenZ
+            .parse_upfront(&[archive.clone()], None, None, None)
+            .unwrap();
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "file.txt")
+            .unwrap()
+            .clone();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendSevenZ
+            .extract_node(&[archive], &node, &dest, None, None)
+            .unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"file.txt\n");
+    }
+
+    #[test]
+    fn sevenz_fixture_extract_nested_file_produces_exact_content() {
+        let (_dir, archive) = make_canonical_7z();
+        let vfs = BackendSevenZ
+            .parse_upfront(&[archive.clone()], None, None, None)
+            .unwrap();
+        let node = vfs
+            .entries
+            .iter()
+            .find(|n| n.path == "folder/another_file.txt")
+            .unwrap()
+            .clone();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.txt");
+        BackendSevenZ
+            .extract_node(&[archive], &node, &dest, None, None)
+            .unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"another_file.txt\n");
     }
 
     // ── multi-volume ─────────────────────────────────────────────────────────

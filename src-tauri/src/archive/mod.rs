@@ -236,7 +236,44 @@ fn collect_zip_volumes(dir: &Path, stem: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::archive::writer::{collect_entries, ArchiveWriter, WriteOptions};
+    use crate::archive::writer_libarchive::{TarArchiveWriter, TarCompression};
+    use crate::archive::writer_sevenz::SevenZArchiveWriter;
     use std::path::PathBuf;
+
+    /// Writes a 3-entry canonical archive into `dir` and returns its path.
+    /// Caller must keep `dir` alive for the path to remain valid.
+    fn write_canonical_tar(
+        dir: &tempfile::TempDir,
+        compression: TarCompression,
+        ext: &str,
+    ) -> PathBuf {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("file.txt"), b"file.txt\n").unwrap();
+        let folder = src.path().join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("another_file.txt"), b"another_file.txt\n").unwrap();
+        let entries = collect_entries(&[src.path().join("file.txt"), folder.clone()]).unwrap();
+        let archive = dir.path().join(format!("fixture.{ext}"));
+        TarArchiveWriter { compression }
+            .create(&entries, &archive, &WriteOptions::default())
+            .unwrap();
+        archive
+    }
+
+    fn write_canonical_7z(dir: &tempfile::TempDir) -> PathBuf {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("file.txt"), b"file.txt\n").unwrap();
+        let folder = src.path().join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("another_file.txt"), b"another_file.txt\n").unwrap();
+        let entries = collect_entries(&[src.path().join("file.txt"), folder.clone()]).unwrap();
+        let archive = dir.path().join("fixture.7z");
+        SevenZArchiveWriter
+            .create(&entries, &archive, &WriteOptions::default())
+            .unwrap();
+        archive
+    }
 
     #[test]
     fn zip_magic_bytes_routes_to_zip_backend() {
@@ -322,6 +359,54 @@ mod tests {
         let archive = tmp.path().join("archive.7z");
         std::fs::write(&archive, b"").unwrap();
         assert_eq!(detect_volumes(&archive), vec![archive]);
+    }
+
+    // ── factory integration: generated fixtures ──────────────────────────────
+    // Archives are generated on-the-fly so no binary blobs are committed.
+
+    #[test]
+    fn tar_gz_fixture_routes_and_parses_correctly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = write_canonical_tar(&tmp, TarCompression::Gzip, "tar.gz");
+        let (backend, paths) = get_backend(&archive).unwrap();
+        let vfs = backend.parse_upfront(&paths, None, None, None).unwrap();
+        assert_eq!(vfs.total_entries, 2);
+    }
+
+    #[test]
+    fn tar_bz2_fixture_routes_and_parses_correctly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = write_canonical_tar(&tmp, TarCompression::Bzip2, "tar.bz2");
+        let (backend, paths) = get_backend(&archive).unwrap();
+        let vfs = backend.parse_upfront(&paths, None, None, None).unwrap();
+        assert_eq!(vfs.total_entries, 2);
+    }
+
+    #[test]
+    fn tar_xz_fixture_routes_and_parses_correctly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = write_canonical_tar(&tmp, TarCompression::Xz, "tar.xz");
+        let (backend, paths) = get_backend(&archive).unwrap();
+        let vfs = backend.parse_upfront(&paths, None, None, None).unwrap();
+        assert_eq!(vfs.total_entries, 2);
+    }
+
+    #[test]
+    fn plain_tar_fixture_routes_and_parses_correctly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = write_canonical_tar(&tmp, TarCompression::None, "tar");
+        let (backend, paths) = get_backend(&archive).unwrap();
+        let vfs = backend.parse_upfront(&paths, None, None, None).unwrap();
+        assert_eq!(vfs.total_entries, 2);
+    }
+
+    #[test]
+    fn sevenz_fixture_routes_and_parses_correctly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = write_canonical_7z(&tmp);
+        let (backend, paths) = get_backend(&archive).unwrap();
+        let vfs = backend.parse_upfront(&paths, None, None, None).unwrap();
+        assert_eq!(vfs.total_entries, 2);
     }
 
     #[test]
